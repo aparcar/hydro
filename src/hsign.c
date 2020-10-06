@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <getopt.h>
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +17,11 @@
 #define COMMENT_PREFIX "untrusted comment: "
 #define KEYNUMBYTES 8
 #define SIGALG "Hy"
+#define VERSION_STRING "0.1"
+#define SIG_SUFFIX ".sig"
+#define DEFAULT_COMMENT "no comment"
+
+static const char* getopt_options = "GSVFRHhc:fm:oP:p:qQs:t:vx:";
 
 typedef struct SeckeyStruct_ {
     unsigned char sig_alg[2];
@@ -44,6 +50,13 @@ static int fput_b64(FILE* fp, const unsigned char* bin, size_t bin_len)
     bin_to_b64(b64, bin, b64_maxlen, bin_len);
     fprintf(fp, "%s\n", b64);
     free(b64);
+    return 0;
+}
+
+void usage()
+{
+    puts("usage");
+    exit(0);
 }
 
 void trim(char* str)
@@ -176,15 +189,15 @@ static int verify(PubkeyStruct* pubkey_struct, const char* message_file, const c
     size_t message_len;
     SigStruct* sig_struct;
 
-    sig_struct = load_sig("hsign.sig");
+    sig_struct = load_sig(sig_file);
     message = message_load(&message_len, message_file);
 
     if (hydro_sign_verify(sig_struct->sig, message, message_len, CONTEXT, pubkey_struct->pk) != 0) {
 	puts("Good Signature");
-	return 1;
+	return 0;
     }
     puts("Bad Signature");
-    return 0;
+    return 1;
 }
 
 static int generate(const char* pk_file, const char* sk_file, const char* comment, int force)
@@ -213,17 +226,126 @@ static int generate(const char* pk_file, const char* sk_file, const char* commen
     fclose(fp);
 }
 
-int main(int argc, char* argv[])
+static char* append_sig_suffix(const char* message_file)
 {
-    PubkeyStruct* pubkey_struct;
-    SeckeyStruct* seckey_struct;
-    SigStruct* sig_struct;
+    char* sig_file;
+    size_t message_file_len = strlen(message_file);
 
-    generate("key.pub", "key.sec", "no comment", 0);
-    pubkey_struct = load_pubkey("key.pub");
-    seckey_struct = load_seckey("key.sec");
-    puts("sign");
-    sign(seckey_struct, "./test.txt", "hsign.sig", "kein kommentar");
-    verify(pubkey_struct, "./test.txt", "hsign.sig");
-    printf("OK\n");
+    sig_file = malloc(message_file_len + sizeof SIG_SUFFIX);
+    memcpy(sig_file, message_file, message_file_len);
+    memcpy(sig_file + message_file_len, SIG_SUFFIX, sizeof SIG_SUFFIX);
+
+    return sig_file;
+}
+
+int main(int argc, char** argv)
+{
+    const char* pk_file = NULL;
+    const char* sk_file = NULL;
+    const char* sig_file = NULL;
+    const char* message_file = NULL;
+    const char* comment = NULL;
+    const char* pubkey_s = NULL;
+    const char* trusted_comment = NULL;
+    uint8_t* keynum = NULL;
+    int opt_flag;
+    int force = 0;
+    enum {
+	NONE,
+	GENERATE,
+	SIGN,
+	VERIFY,
+	FINGERPRINT
+    } action
+	= NONE;
+
+    while ((opt_flag = getopt(argc, argv, getopt_options)) != -1) {
+	switch (opt_flag) {
+	case 'G':
+	    action = GENERATE;
+	    break;
+	case 'S':
+	    action = SIGN;
+	    break;
+	case 'V':
+	    action = VERIFY;
+	    break;
+	case 'F':
+	    action = FINGERPRINT;
+	    break;
+	case 'c':
+	    comment = optarg;
+	    break;
+	case 'f':
+	    force = 1;
+	    break;
+	case 'h':
+	    usage();
+	    break;
+	case 'm':
+	    message_file = optarg;
+	    break;
+	case 'p':
+	    pk_file = optarg;
+	    break;
+	case 's':
+	    sk_file = optarg;
+	    break;
+	case 'x':
+	    sig_file = optarg;
+	    break;
+	case 'v':
+	    puts(VERSION_STRING);
+	    return 0;
+	}
+    }
+
+    switch (action) {
+    case GENERATE:
+	if (comment == NULL || *comment == 0) {
+	    comment = DEFAULT_COMMENT;
+	}
+	return generate(pk_file, sk_file, comment, force) != 0;
+    case SIGN:
+	if (message_file == NULL) {
+	    usage();
+	}
+	if (sig_file == NULL || *sig_file == 0) {
+	    sig_file = append_sig_suffix(message_file);
+	}
+	if (comment == NULL || *comment == 0) {
+	    comment = DEFAULT_COMMENT;
+	}
+	return sign(load_seckey(sk_file), message_file, sig_file, comment) != 0;
+    case VERIFY:
+	if (message_file == NULL) {
+	    usage();
+	}
+	if (sig_file == NULL || *sig_file == 0) {
+	    sig_file = append_sig_suffix(message_file);
+	}
+	return verify(load_pubkey(pk_file), message_file, sig_file) != 0;
+    case FINGERPRINT:
+	if (!!sig_file + !!pk_file + !!sk_file != 1) {
+	    usage();
+	}
+	if (!!sig_file) {
+	    keynum = load_sig(sig_file)->keynum;
+	} else if (!!sk_file) {
+	    keynum = load_seckey(sk_file)->keynum;
+	} else if (!!pk_file) {
+	    keynum = load_pubkey(pk_file)->keynum;
+	} else {
+	    usage();
+	}
+
+	for (char i = 0; i < KEYNUMBYTES; i++) {
+	    fprintf(stdout, "%02x", keynum[i]);
+	}
+	fprintf(stdout, "\n");
+	return 0;
+    default:
+	usage();
+    }
+    return 0;
 }
