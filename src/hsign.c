@@ -23,12 +23,14 @@
 
 static const char* getopt_options = "GSVFRHhc:fm:oP:p:qQs:t:vx:";
 
+#ifndef VERIFYONLY
 typedef struct SeckeyStruct_ {
     unsigned char sig_alg[2];
     unsigned char keynum[KEYNUMBYTES];
     unsigned char sk[hydro_sign_SECRETKEYBYTES];
 
 } SeckeyStruct;
+#endif
 
 typedef struct PubkeyStruct_ {
     unsigned char sig_alg[2];
@@ -42,6 +44,7 @@ typedef struct SigStruct_ {
     unsigned char sig[hydro_sign_BYTES];
 } SigStruct;
 
+#ifndef VERIFYONLY
 static int fput_b64(FILE* fp, const unsigned char* bin, size_t bin_len)
 {
     const size_t b64_maxlen = (bin_len + 2) * 4 / 3 + 1;
@@ -52,6 +55,7 @@ static int fput_b64(FILE* fp, const unsigned char* bin, size_t bin_len)
     free(b64);
     return 0;
 }
+#endif
 
 void usage()
 {
@@ -118,6 +122,7 @@ static PubkeyStruct* load_pubkey(const char* filename)
     return pubkey_struct;
 }
 
+#ifndef VERIFYONLY
 static SeckeyStruct* load_seckey(const char* filename)
 {
     char sk_comment[COMMENTMAXBYTES];
@@ -141,6 +146,7 @@ static SeckeyStruct* load_seckey(const char* filename)
     }
     return seckey_struct;
 }
+#endif
 
 static unsigned char* message_load(size_t* message_len, const char* message_file)
 {
@@ -157,6 +163,7 @@ static unsigned char* message_load(size_t* message_len, const char* message_file
     return message;
 }
 
+#ifndef VERIFYONLY
 static int sign(SeckeyStruct* seckey_struct, const char* message_file, const char* sig_file, const char* comment)
 {
     SigStruct sig_struct;
@@ -181,6 +188,7 @@ static int sign(SeckeyStruct* seckey_struct, const char* message_file, const cha
     fput_b64(fp, (unsigned char*)(void*)&sig_struct, sizeof sig_struct);
     fclose(fp);
 }
+#endif
 
 static int verify(PubkeyStruct* pubkey_struct, const char* message_file, const char* sig_file)
 {
@@ -200,6 +208,7 @@ static int verify(PubkeyStruct* pubkey_struct, const char* message_file, const c
     return 1;
 }
 
+#ifndef VERIFYONLY
 static int generate(const char* pk_file, const char* sk_file, const char* comment, int force)
 {
     FILE* fp;
@@ -225,6 +234,7 @@ static int generate(const char* pk_file, const char* sk_file, const char* commen
     fput_b64(fp, (unsigned char*)(void*)pubkey_struct, sizeof *pubkey_struct);
     fclose(fp);
 }
+#endif
 
 static char* append_sig_suffix(const char* message_file)
 {
@@ -240,13 +250,11 @@ static char* append_sig_suffix(const char* message_file)
 
 int main(int argc, char** argv)
 {
-    const char* pk_file = NULL;
     const char* sk_file = NULL;
+    const char* pk_file = NULL;
     const char* sig_file = NULL;
     const char* message_file = NULL;
     const char* comment = NULL;
-    const char* pubkey_s = NULL;
-    const char* trusted_comment = NULL;
     uint8_t* keynum = NULL;
     int opt_flag;
     int force = 0;
@@ -288,9 +296,11 @@ int main(int argc, char** argv)
 	case 'p':
 	    pk_file = optarg;
 	    break;
+#ifndef VERIFYONLY
 	case 's':
 	    sk_file = optarg;
 	    break;
+#endif
 	case 'x':
 	    sig_file = optarg;
 	    break;
@@ -301,6 +311,7 @@ int main(int argc, char** argv)
     }
 
     switch (action) {
+#ifndef VERIFYONLY
     case GENERATE:
 	if (comment == NULL || *comment == 0) {
 	    comment = DEFAULT_COMMENT;
@@ -317,6 +328,7 @@ int main(int argc, char** argv)
 	    comment = DEFAULT_COMMENT;
 	}
 	return sign(load_seckey(sk_file), message_file, sig_file, comment) != 0;
+#endif
     case VERIFY:
 	if (message_file == NULL) {
 	    usage();
@@ -331,8 +343,10 @@ int main(int argc, char** argv)
 	}
 	if (!!sig_file) {
 	    keynum = load_sig(sig_file)->keynum;
+#ifndef VERIFYONLY
 	} else if (!!sk_file) {
 	    keynum = load_seckey(sk_file)->keynum;
+#endif
 	} else if (!!pk_file) {
 	    keynum = load_pubkey(pk_file)->keynum;
 	} else {
